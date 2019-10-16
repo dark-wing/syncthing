@@ -23,7 +23,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
-type FileSet struct {
+type FileSet struct { //该结构用于通过检查更新来追踪一个本地或者远程文件的变化 sjb
 	folder string
 	fs     fs.Filesystem
 	db     *instance
@@ -151,7 +151,7 @@ func (s *FileSet) Update(device protocol.DeviceID, fs []protocol.FileInfo) {
 	// Easy case, just update the files and we're done.
 	s.db.updateRemoteFiles([]byte(s.folder), device[:], fs, s.meta)
 }
-
+//遍历执行 fn sjb 
 func (s *FileSet) WithNeed(device protocol.DeviceID, fn Iterator) {
 	l.Debugf("%s WithNeed(%v)", s.folder, device)
 	s.db.withNeed([]byte(s.folder), device[:], false, nativeFileIterator(fn))

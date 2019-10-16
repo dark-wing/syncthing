@@ -33,7 +33,7 @@ import (
 
 // scanLimiter limits the number of concurrent scans. A limit of zero means no limit.
 var scanLimiter = newByteSemaphore(0)
-
+//每个同步的顶层目录需要一个folder sjb
 type folder struct {
 	suture.Service
 	stateTracker
@@ -106,7 +106,7 @@ func newFolder(model *model, fset *db.FileSet, ignores *ignore.Matcher, cfg conf
 		watchMut:         sync.NewMutex(),
 	}
 }
-
+//此函数是所有操作目录的的入口，不论是定时任务还是即时任务都是通过chan传入此函数再进行执行 sjb
 func (f *folder) serve(_ chan struct{}) {
 	atomic.AddInt32(&f.model.foldersRunning, 1)
 	defer atomic.AddInt32(&f.model.foldersRunning, -1)
@@ -222,7 +222,7 @@ func (f *folder) Jobs(_, _ int) ([]string, []string, int) {
 }
 
 func (f *folder) Scan(subdirs []string) error {
-	<-f.initialScanFinished
+	<-f.initialScanFinished   //在这里<-chan是用于判断通道是否关闭，如果没有关闭会一直阻塞，直到关闭或者有具体数据出来。 sjb
 	req := rescanRequest{
 		subdirs: subdirs,
 		err:     make(chan error),
@@ -281,7 +281,7 @@ func (f *folder) getHealthError() error {
 
 	return nil
 }
-
+//真正用于扫描的函数,subDirs 为nil时使用scaner.walk扫描本目录文件，判断是否有变化 sjb
 func (f *folder) scanSubdirs(subDirs []string) error {
 	if err := f.CheckHealth(); err != nil {
 		return err
@@ -375,7 +375,7 @@ func (f *folder) scanSubdirs(subDirs []string) error {
 					// we just pretend it is a normal deleted file (nobody
 					// cares about that).
 					fs[i].LocalFlags &^= protocol.FlagLocalReceiveOnly
-				}
+				} //好像没有处理仅接受类型中全局有变化的情况,也许再folder_recvonly中处理  sjb
 			}
 			return oldBatchFn(fs)
 		}
@@ -389,7 +389,7 @@ func (f *folder) scanSubdirs(subDirs []string) error {
 		if changes > 0 {
 			f.SchedulePull()
 		}
-	}()
+	}()//扫描结束后发现有变化 则 pull sjb 
 
 	f.clearScanErrors(subDirs)
 	for res := range fchan {

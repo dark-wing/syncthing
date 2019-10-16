@@ -180,8 +180,8 @@ func (f *sendReceiveFolder) pull() bool {
 	f.clearPullErrors()
 
 	scanChan := make(chan string)
-	go f.pullScannerRoutine(scanChan)
-
+	go f.pullScannerRoutine(scanChan)  //启动一个线程用于在pull结束后扫描，数据通过scanChan传递而不是通过某种中间变量减少传递风险，但是不太好理解 sjb
+									   // scanChan用于输入，而在后面的pullerIneration则用于输出	
 	defer func() {
 		close(scanChan)
 		f.setState(FolderIdle)
@@ -236,7 +236,7 @@ func (f *sendReceiveFolder) pullerIteration(scanChan chan<- string) int {
 	updateWg := sync.NewWaitGroup()
 
 	l.Debugln(f, "copiers:", f.Copiers, "pullerPendingKiB:", f.PullerMaxPendingKiB)
-
+	//启动多种线程处理文件拉取，copy以及数据库更新 sjb
 	updateWg.Add(1)
 	go func() {
 		// dbUpdaterRoutine finishes when dbUpdateChan is closed
@@ -248,7 +248,7 @@ func (f *sendReceiveFolder) pullerIteration(scanChan chan<- string) int {
 		copyWg.Add(1)
 		go func() {
 			// copierRoutine finishes when copyChan is closed
-			f.copierRoutine(copyChan, pullChan, finisherChan)
+			f.copierRoutine(copyChan, pullChan, finisherChan) 
 			copyWg.Done()
 		}()
 	}
@@ -266,7 +266,7 @@ func (f *sendReceiveFolder) pullerIteration(scanChan chan<- string) int {
 		f.finisherRoutine(finisherChan, dbUpdateChan, scanChan)
 		doneWg.Done()
 	}()
-
+	//通过chan分发任务到各个线程，同时返回分类列表，关键环节 sjb
 	changed, fileDeletions, dirDeletions, err := f.processNeeded(dbUpdateChan, copyChan, scanChan)
 
 	// Signal copy and puller routines that we are done with the in data for
@@ -303,8 +303,8 @@ func (f *sendReceiveFolder) processNeeded(dbUpdateChan chan<- dbUpdateJob, copyC
 	// Iterate the list of items that we need and sort them into piles.
 	// Regular files to pull goes into the file queue, everything else
 	// (directories, symlinks and deletes) goes into the "process directly"
-	// pile.
-	f.fset.WithNeed(protocol.LocalDeviceID, func(intf db.FileIntf) bool {
+	// pile.    
+	f.fset.WithNeed(protocol.LocalDeviceID, func(intf db.FileIntf) bool {  
 		select {
 		case <-f.ctx.Done():
 			return false
@@ -466,7 +466,7 @@ nextFile:
 
 		// Check our list of files to be removed for a match, in which case
 		// we can just do a rename instead.
-		key := string(fi.Blocks[0].Hash)
+		key := string(fi.Blocks[0].Hash)  //处理需要删除的文件 sjb
 		for i, candidate := range buckets[key] {
 			if protocol.BlocksEqual(candidate.Blocks, fi.Blocks) {
 				// Remove the candidate from the bucket
@@ -1215,8 +1215,8 @@ func (f *sendReceiveFolder) shortcutFile(file, curFile protocol.FileInfo, dbUpda
 // copierRoutine reads copierStates until the in channel closes and performs
 // the relevant copies when possible, or passes it to the puller routine.
 func (f *sendReceiveFolder) copierRoutine(in <-chan copyBlocksState, pullChan chan<- pullBlockState, out chan<- *sharedPullerState) {
-	buf := protocol.BufferPool.Get(protocol.MinBlockSize)
-	defer func() {
+	buf := protocol.BufferPool.Get(protocol.MinBlockSize) //in管道将得到需要拷贝的文件，先对文件分块进行校验，查找改变的块，然后对块进行copy sjb
+	defer func() {									//分块的方式使得能够增量传输，同时在多节点进行p2p时更有效率，但是如果只是备份，则显得过于复杂
 		protocol.BufferPool.Put(buf)
 	}()
 
@@ -1354,7 +1354,7 @@ func (f *sendReceiveFolder) copierRoutine(in <-chan copyBlocksState, pullChan ch
 					sharedPullerState: state.sharedPullerState,
 					block:             block,
 				}
-				pullChan <- ps
+				pullChan <- ps		//对于本地缺少的块，通知puller进行拉取
 			} else {
 				state.copyDone(block)
 			}
@@ -1678,8 +1678,8 @@ loop:
 // scheduled once when scanChan is closed (scanning can not happen during pulling).
 func (f *sendReceiveFolder) pullScannerRoutine(scanChan <-chan string) {
 	toBeScanned := make(map[string]struct{})
-
-	for path := range scanChan {
+	//这里的toBeScanned 看上去没什么用，实际上应该是用来去重，同时避免反复申请空间，如果是直接用数组因为无法预估长度可能会有浪费 sjb
+	for path := range scanChan {	// 这个循环需要再scanChan结束后才会跳出 			
 		toBeScanned[path] = struct{}{}
 	}
 
