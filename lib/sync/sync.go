@@ -240,8 +240,8 @@ func goid() int {
 // TimeoutCondWaiter configured with the given timeout, which can then be used to listen for
 // broadcasts.
 type TimeoutCond struct {
-	L  sync.Locker
-	ch chan struct{}
+	L  sync.Locker		//这个锁是外部调用的，感觉不太严谨
+	ch chan struct{}	//这个chan只是用close来通知消息用，所以是struct{} 感觉这里用context更加好  sjb
 }
 
 // TimeoutCondWaiter is a type allowing a consumer to wait on a TimeoutCond with a timeout. Wait() may be called multiple times,
@@ -262,7 +262,7 @@ func NewTimeoutCond(l sync.Locker) *TimeoutCond {
 func (c *TimeoutCond) Broadcast() {
 	// ch.L must be locked when calling this function
 
-	if c.ch != nil {
+	if c.ch != nil {	//通过关闭chan来通知 所有TimeoutCondWaiter 
 		close(c.ch)
 		c.ch = nil
 	}
@@ -271,7 +271,7 @@ func (c *TimeoutCond) Broadcast() {
 func (c *TimeoutCond) SetupWait(timeout time.Duration) *TimeoutCondWaiter {
 	timer := time.NewTimer(timeout)
 
-	return &TimeoutCondWaiter{
+	return &TimeoutCondWaiter{  //构建一个Waiter来等待 TimeoutCond的刷新 感觉完全可以使用context
 		c:     c,
 		timer: timer,
 	}

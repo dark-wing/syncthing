@@ -254,7 +254,7 @@ func NewLogger() *Logger {
 	return l
 }
 
-func (l *Logger) Serve() {
+func (l *Logger) Serve() {  //此函数为了实现Seveice接口而建，所有的数据都通过chan流经此处，但是实际上这样使得流程非常复杂 sjb
 loop:
 	for {
 		select {
@@ -325,7 +325,7 @@ func (l *Logger) sendEvent(e Event) {
 
 func (l *Logger) Subscribe(mask EventType) *Subscription {
 	res := make(chan *Subscription)
-	l.funcs <- func() {
+	l.funcs <- func() {		//这个函数被传入到 Serve 进行处理执行，导致流程比较纠结
 		dl.Debugln("subscribe", mask)
 
 		s := &Subscription{
@@ -438,12 +438,12 @@ func NewBufferedSubscription(s *Subscription, size int) BufferedSubscription {
 }
 
 func (s *bufferedSubscription) pollingLoop() {
-	for ev := range s.sub.C() {
+	for ev := range s.sub.C() {  //这里实际上将sentEvent中的event直接传入过来，并且保存到buf中
 		s.mut.Lock()
 		s.buf[s.next] = ev
 		s.next = (s.next + 1) % len(s.buf)
 		s.cur = ev.SubscriptionID
-		s.cond.Broadcast()
+		s.cond.Broadcast() //通知所有在s.cond上等待的线程，事件有更新
 		s.mut.Unlock()
 	}
 }

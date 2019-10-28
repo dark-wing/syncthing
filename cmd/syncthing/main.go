@@ -565,7 +565,7 @@ func syncthingMain(runtimeOptions RuntimeOptions) {
 			os.Exit(1)
 		}
 	}
-	myID := protocol.NewDeviceID(cert.Certificate[0])
+	myID := protocol.NewDeviceID(cert.Certificate[0])//id生成是对证书内容进行base32后hash所得
 
 	cfg, err := loadConfigAtStartup(runtimeOptions.allowNewerConfig, myID)
 	if err != nil {
@@ -579,7 +579,7 @@ func syncthingMain(runtimeOptions RuntimeOptions) {
 		setPauseState(cfg, true)
 	}
 
-	dbFile := locations.Get(locations.Database)
+	dbFile := locations.Get(locations.Database)//数据库用于保存与跟踪本地与远程的变化
 	ldb, err := syncthing.OpenGoleveldb(dbFile)
 	if err != nil {
 		l.Warnln("Error opening database:", err)
@@ -597,7 +597,7 @@ func syncthingMain(runtimeOptions RuntimeOptions) {
 
 	app := syncthing.New(cfg, ldb, cert, appOpts)
 
-	setupSignalHandling(app)
+	setupSignalHandling(app) //分出线程捕获并处理系统消息
 
 	if len(os.Getenv("GOMAXPROCS")) == 0 {
 		runtime.GOMAXPROCS(runtime.NumCPU())
@@ -616,7 +616,7 @@ func syncthingMain(runtimeOptions RuntimeOptions) {
 	}
 
 	if opts := cfg.Options(); opts.RestartOnWakeup {
-		go standbyMonitor(app)
+		go standbyMonitor(app) //启动主线程监控，主要用于应对休眠重启的状况
 	}
 
 	// Candidate builds should auto upgrade. Make sure the option is set,
@@ -644,9 +644,9 @@ func syncthingMain(runtimeOptions RuntimeOptions) {
 		}
 	}
 
-	app.Start()
+	app.Start() //启动主服务协程
 
-	cleanConfigDirectory()
+	cleanConfigDirectory()  //依据配置，清理各类临时与备份目录
 
 	if cfg.Options().StartBrowser && !runtimeOptions.noBrowser && !runtimeOptions.stRestarting {
 		// Can potentially block if the utility we are invoking doesn't
@@ -654,9 +654,9 @@ func syncthingMain(runtimeOptions RuntimeOptions) {
 		go func() { _ = openURL(cfg.GUI().URL()) }()
 	}
 
-	status := app.Wait()
+	status := app.Wait() //挂起本协程，等待主协程结束
 
-	if runtimeOptions.cpuProfile {
+	if runtimeOptions.cpuProfile {  
 		pprof.StopCPUProfile()
 	}
 

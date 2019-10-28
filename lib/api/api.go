@@ -55,7 +55,7 @@ import (
 var bcryptExpr = regexp.MustCompile(`^\$2[aby]\$\d+\$.{50,}`)
 
 const (
-	DefaultEventMask    = events.AllEvents &^ events.LocalChangeDetected &^ events.RemoteChangeDetected
+	DefaultEventMask    = events.AllEvents &^ events.LocalChangeDetected &^ events.RemoteChangeDetected //除磁盘变更以外的所有事件 
 	DiskEventMask       = events.LocalChangeDetected | events.RemoteChangeDetected
 	EventSubBufferSize  = 1000
 	defaultEventTimeout = time.Minute

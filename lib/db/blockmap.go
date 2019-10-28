@@ -20,8 +20,8 @@ var blockFinder *BlockFinder
 type BlockFinder struct {
 	db *instance
 }
-
-func NewBlockFinder(db *Lowlevel) *BlockFinder {
+//这里是个单例模式，并不会new出一堆实例来
+func NewBlockFinder(db *Lowlevel) *BlockFinder { 
 	if blockFinder != nil {
 		return blockFinder
 	}

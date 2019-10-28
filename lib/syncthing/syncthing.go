@@ -98,9 +98,9 @@ func (a *App) Run() ExitStatus {
 // Start executes the app and returns once all the startup operations are done,
 // e.g. the API is ready for use.
 func (a *App) Start() {
-	a.startOnce.Do(func() {
+	a.startOnce.Do(func() {		//确保主协程只运行一次
 		if err := a.startup(); err != nil {
-			close(a.stop)
+			close(a.stop)		//关闭此通道，通知所有派生协程结束运行
 			a.exitStatus = ExitError
 			a.err = err
 			close(a.stopped)
@@ -109,17 +109,17 @@ func (a *App) Start() {
 		go a.run()
 	})
 }
-
+//此函数为主服务函数 sjb 
 func (a *App) startup() error {
 	// Create a main service manager. We'll add things to this as we go along.
 	// We want any logging it does to go through our log system.
-	a.mainService = suture.New("main", suture.Spec{
-		Log: func(line string) {
+	a.mainService = suture.New("main", suture.Spec{   //suture 库用于生成一个supervisor树，
+		Log: func(line string) {					  //通过该树可以对派生的服务监控，发现crash时对其重启，从而保证其有效	
 			l.Debugln(line)
 		},
 		PassThroughPanics: true,
 	})
-	a.mainService.ServeBackground()
+	a.mainService.ServeBackground()  // mainService 是一个supervisor ，对其可以通过Add来添加监管服务，被添加者需要实现Service接口
 
 	// Set a log prefix similar to the ID we will have later on, or early log
 	// lines look ugly.
@@ -130,7 +130,7 @@ func (a *App) startup() error {
 	}
 
 	if a.opts.Verbose {
-		a.mainService.Add(newVerboseService())
+		a.mainService.Add(newVerboseService()) //订阅日志，用于捕获日志并保存
 	}
 
 	errors := logger.NewRecorder(l, logger.LevelWarn, maxSystemErrors, 0)
@@ -141,13 +141,13 @@ func (a *App) startup() error {
 	// receiver in some situations so we will not subscribe to it here.
 	defaultSub := events.NewBufferedSubscription(events.Default.Subscribe(api.DefaultEventMask), api.EventSubBufferSize)
 	diskSub := events.NewBufferedSubscription(events.Default.Subscribe(api.DiskEventMask), api.EventSubBufferSize)
-
+	//上面生成了一般事件与磁盘事件的消息订阅，接下来就需要了解是谁处理了这些事件了。 sjb
 	// Attempt to increase the limit on number of open files to the maximum
 	// allowed, in case we have many peers. We don't really care enough to
 	// report the error if there is one.
 	osutil.MaximizeOpenFileLimit()
 
-	a.myID = protocol.NewDeviceID(a.cert.Certificate[0])
+	a.myID = protocol.NewDeviceID(a.cert.Certificate[0])	//设备id是通过对证书进行base32后hash生成
 	l.SetPrefix(fmt.Sprintf("[%s] ", a.myID.String()[:5]))
 
 	l.Infoln(build.LongVersion)
@@ -170,7 +170,7 @@ func (a *App) startup() error {
 		return err
 	}
 
-	if len(a.opts.ProfilerURL) > 0 {
+	if len(a.opts.ProfilerURL) > 0 { //启动go诊断信息服务
 		go func() {
 			l.Debugln("Starting profiler on", a.opts.ProfilerURL)
 			runtime.SetBlockProfileRate(1)
@@ -185,7 +185,7 @@ func (a *App) startup() error {
 	perf := ur.CpuBench(3, 150*time.Millisecond, true)
 	l.Infof("Hashing performance is %.02f MB/s", perf)
 
-	if err := db.UpdateSchema(a.ll); err != nil {
+	if err := db.UpdateSchema(a.ll); err != nil {  
 		l.Warnln("Database schema:", err)
 		return err
 	}
@@ -204,14 +204,14 @@ func (a *App) startup() error {
 
 	// Remove database entries for folders that no longer exist in the config
 	folders := a.cfg.Folders()
-	for _, folder := range a.ll.ListFolders() {
+	for _, folder := range a.ll.ListFolders() {  //清理配种中指定的文件夹
 		if _, ok := folders[folder]; !ok {
 			l.Infof("Cleaning data for dropped folder %q", folder)
 			db.DropFolder(a.ll, folder)
 		}
 	}
 
-	// Grab the previously running version string from the database.
+	//	
 
 	miscDB := db.NewMiscDataNamespace(a.ll)
 	prevVersion, _ := miscDB.String("prevVersion")
@@ -235,7 +235,7 @@ func (a *App) startup() error {
 		miscDB.PutString("prevVersion", build.Version)
 	}
 
-	m := model.NewModel(a.cfg, a.myID, "syncthing", build.Version, a.ll, protectedFiles)
+	m := model.NewModel(a.cfg, a.myID, "syncthing", build.Version, a.ll, protectedFiles)//所有文件磁盘操作以及各peer端信息处理应该都在model中
 
 	if a.opts.DeadlockTimeoutS > 0 {
 		m.StartDeadlockDetector(time.Duration(a.opts.DeadlockTimeoutS) * time.Second)
@@ -244,7 +244,7 @@ func (a *App) startup() error {
 	}
 
 	// Add and start folders
-	for _, folderCfg := range a.cfg.Folders() {
+	for _, folderCfg := range a.cfg.Folders() { //配置文件包含了需要同步的目录信息
 		if folderCfg.Paused {
 			folderCfg.CreateRoot()
 			continue
@@ -253,7 +253,7 @@ func (a *App) startup() error {
 		m.StartFolder(folderCfg.ID)
 	}
 
-	a.mainService.Add(m)
+	a.mainService.Add(m) //将model加入到主监督树，需要注意 model本身也包含了一个监督树，同时也实现了service的 serve与stop方法
 
 	// Start discovery
 
@@ -271,12 +271,12 @@ func (a *App) startup() error {
 	tlsCfg.InsecureSkipVerify = true
 
 	// Start connection management
-
+	//用于管理所有连接，它的方式类似与model，也是自带监督树同时也被主监督树管理
 	connectionsService := connections.NewService(a.cfg, a.myID, m, tlsCfg, cachedDiscovery, bepProtocolName, tlsDefaultCommonName)
 	a.mainService.Add(connectionsService)
 
-	if a.cfg.Options().GlobalAnnEnabled {
-		for _, srv := range a.cfg.GlobalDiscoveryServers() {
+	if a.cfg.Options().GlobalAnnEnabled { 
+		for _, srv := range a.cfg.GlobalDiscoveryServers() { 
 			l.Infoln("Using discovery server", srv)
 			gd, err := discover.NewGlobal(srv, a.cert, connectionsService)
 			if err != nil {
